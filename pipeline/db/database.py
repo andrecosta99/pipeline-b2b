@@ -137,7 +137,7 @@ def upsert_dominio(
     conn: sqlite3.Connection,
     *,
     empresa_id: int,
-    dominio: str,
+    dominio: Optional[str],
     url_homepage: Optional[str] = None,
     metodo_busca: str = "csv_manual",
     score_fuzzy: Optional[float] = None,
@@ -170,3 +170,16 @@ def upsert_dominio(
 
 def count_empresas(conn: sqlite3.Connection) -> int:
     return conn.execute("SELECT COUNT(*) AS n FROM empresas").fetchone()["n"]
+
+
+def empresas_sem_dominio(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Empresas que ainda nao tiveram nenhuma tentativa de descoberta de dominio (Fase 2)."""
+    return conn.execute(
+        """
+        SELECT e.id, e.nome, e.concelho, e.distrito
+        FROM empresas e
+        LEFT JOIN dominios d ON d.empresa_id = e.id
+        WHERE d.id IS NULL
+        ORDER BY e.id
+        """
+    ).fetchall()

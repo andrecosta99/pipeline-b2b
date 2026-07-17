@@ -8,7 +8,7 @@ prática em IA para equipas.
 ## Estado atual
 
 - ✅ **Fase 1** — Recolha de universo, via importação de CSV curado manualmente
-- ⏳ Fase 2 — Descoberta de domínio (para empresas do CSV sem site)
+- ✅ **Fase 2** — Descoberta de domínio (Google CSE / Bing + fuzzy match) para empresas do CSV sem site
 - ⏳ Fase 3 — Análise de website / deteção de chatbot
 - ⏳ Fase 4 — Recolha de email
 - ⏳ Fase 5 — Classificação e ordenação de serviços
@@ -66,6 +66,27 @@ Se o ficheiro não tiver cabeçalho reconhecível, assume a ordem posicional
   e gravados já como domínio validado (fase 2 só corre para quem não tiver site no CSV).
 - Linhas sem nome são ignoradas com aviso no log; sites que não parecem domínios válidos são ignorados (empresa fica sem domínio, a preencher na Fase 2).
 
+## Fase 2: descoberta de domínio
+
+Para empresas do CSV que não têm site preenchido, a Fase 2 pesquisa
+`"{nome} {concelho}"` no motor configurado (`SEARCH_PROVIDER=google` ou
+`bing` no `.env`) e valida o melhor resultado por fuzzy match (rapidfuzz)
+entre o nome da empresa e o título/domínio devolvidos. Ignora sempre redes
+sociais e diretórios de empresas (Facebook, LinkedIn, Racius, etc.) mesmo que
+o nome coincida. Abaixo do `--threshold` (default 70/100), a empresa fica
+sem domínio válido.
+
+```bash
+# preenche GOOGLE_CSE_API_KEY + GOOGLE_CSE_ID (ou BING_SEARCH_API_KEY) no .env primeiro
+python scripts/run_fase2.py
+python scripts/run_fase2.py --limite 20        # só as primeiras 20 (para testar)
+python scripts/run_fase2.py --threshold 65      # ajustar o rigor do match
+```
+
+Só processa empresas que ainda não têm nenhuma linha em `dominios` — correr
+outra vez não repete pesquisas já feitas (mesmo as que falharam ficam
+marcadas com `validado=0`, para o histórico/depuração).
+
 ## Setup
 
 ```bash
@@ -118,11 +139,14 @@ pipeline/
   scrapers/
     mj_portal.py             # automação Playwright do Portal da Justica (INATIVO, ver acima)
     mj_portal_parser.py      # parsing HTML -> dados (testável isoladamente)
-  discovery/           # Fase 2 (a implementar)
+  discovery/
+    search_provider.py       # abstracao Google CSE / Bing
+    domain_discovery.py      # pesquisa + validacao por fuzzy match
   analysis/             # Fase 3 (a implementar)
   emails/               # Fase 6 (a implementar)
 scripts/
   import_csv.py               # importa o CSV manual (Fase 1 ativa)
+  run_fase2.py                 # CLI da descoberta de dominio (Fase 2)
   run_fase1.py                # CLI do scraper do MJ (inativo por agora)
   inspect_raw_html.py         # ajuda a calibrar o parser do MJ, se reativado
 schema.sql              # schema SQLite (preparado para migrar para Postgres)
