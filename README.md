@@ -9,7 +9,7 @@ prática em IA para equipas.
 
 - ✅ **Fase 1** — Recolha de universo, via importação de CSV curado manualmente
 - ✅ **Fase 2** — Descoberta de domínio (Google CSE / Bing + fuzzy match) para empresas do CSV sem site
-- ⏳ Fase 3 — Análise de website / deteção de chatbot
+- ✅ **Fase 3** — Análise de website: deteção de chatbot + classificação via Claude API
 - ⏳ Fase 4 — Recolha de email
 - ⏳ Fase 5 — Classificação e ordenação de serviços
 - ⏳ Fase 6 — Geração de sequência de emails
@@ -87,6 +87,34 @@ Só processa empresas que ainda não têm nenhuma linha em `dominios` — correr
 outra vez não repete pesquisas já feitas (mesmo as que falharam ficam
 marcadas com `validado=0`, para o histórico/depuração).
 
+## Fase 3: análise de website e deteção de chatbot
+
+Para empresas com domínio validado (Fase 2), a Fase 3:
+
+1. Visita a homepage e a página de contacto com Playwright (headless).
+2. Deteta widgets de chat conhecidos (Intercom, Drift, Tidio, Zendesk,
+   Crisp, tawk.to) ou genéricos (`pipeline/analysis/chatbot_detection.py`),
+   por assinaturas no HTML.
+3. **Best-effort**: se houver widget, tenta abri-lo e enviar uma pergunta
+   fora do guião ("Vendem/trabalham também fora de Portugal?"), capturando o
+   trecho da página logo a seguir. Cada fornecedor de chat tem uma UI
+   diferente, por isso isto usa seletores genéricos e pode falhar em muitos
+   sites — quando falha, a análise continua sem essa resposta.
+4. Envia os sinais recolhidos (texto da homepage, widget detetado, resposta
+   capturada) à Claude API, que devolve `tipo_chatbot`
+   (`sem_chatbot` / `chatbot_deterministico` / `chatbot_ia_real`), número de
+   serviços listados, se o formulário é qualificado, presença de blog,
+   idiomas, e um exemplo concreto do que o chatbot não respondeu bem.
+
+```bash
+# preenche ANTHROPIC_API_KEY no .env primeiro
+python scripts/run_fase3.py
+python scripts/run_fase3.py --limite 10
+```
+
+Só processa empresas com domínio validado que ainda não têm análise
+registada em `analises_website`.
+
 ## Setup
 
 ```bash
@@ -142,11 +170,15 @@ pipeline/
   discovery/
     search_provider.py       # abstracao Google CSE / Bing
     domain_discovery.py      # pesquisa + validacao por fuzzy match
-  analysis/             # Fase 3 (a implementar)
+  analysis/
+    chatbot_detection.py      # deteta widgets de chat por assinatura no HTML
+    website_analyzer.py       # Playwright: visita site, tenta interagir com o widget
+    claude_classifier.py      # classificacao via Claude API
   emails/               # Fase 6 (a implementar)
 scripts/
   import_csv.py               # importa o CSV manual (Fase 1 ativa)
   run_fase2.py                 # CLI da descoberta de dominio (Fase 2)
+  run_fase3.py                 # CLI da analise de website/chatbot (Fase 3)
   run_fase1.py                # CLI do scraper do MJ (inativo por agora)
   inspect_raw_html.py         # ajuda a calibrar o parser do MJ, se reativado
 schema.sql              # schema SQLite (preparado para migrar para Postgres)

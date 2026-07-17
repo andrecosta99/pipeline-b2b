@@ -183,3 +183,49 @@ def empresas_sem_dominio(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         ORDER BY e.id
         """
     ).fetchall()
+
+
+def empresas_com_dominio_sem_analise(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Empresas com dominio validado (Fase 2) mas ainda sem analise de website (Fase 3)."""
+    return conn.execute(
+        """
+        SELECT e.id, e.nome, e.concelho, d.dominio
+        FROM empresas e
+        JOIN dominios d ON d.empresa_id = e.id AND d.validado = 1
+        LEFT JOIN analises_website a ON a.empresa_id = e.id
+        WHERE a.id IS NULL
+        ORDER BY e.id
+        """
+    ).fetchall()
+
+
+def upsert_analise_website(
+    conn: sqlite3.Connection,
+    *,
+    empresa_id: int,
+    tipo_chatbot: Optional[str],
+    widget_detectado: Optional[str] = None,
+    exemplo_falha_chatbot: Optional[str] = None,
+    sinais_json: Optional[str] = None,
+) -> int:
+    conn.execute(
+        """
+        INSERT INTO analises_website (empresa_id, tipo_chatbot, widget_detectado, exemplo_falha_chatbot, sinais_json)
+        VALUES (:empresa_id, :tipo_chatbot, :widget_detectado, :exemplo_falha_chatbot, :sinais_json)
+        ON CONFLICT(empresa_id) DO UPDATE SET
+            tipo_chatbot = excluded.tipo_chatbot,
+            widget_detectado = excluded.widget_detectado,
+            exemplo_falha_chatbot = excluded.exemplo_falha_chatbot,
+            sinais_json = excluded.sinais_json,
+            analisado_em = datetime('now')
+        """,
+        {
+            "empresa_id": empresa_id,
+            "tipo_chatbot": tipo_chatbot,
+            "widget_detectado": widget_detectado,
+            "exemplo_falha_chatbot": exemplo_falha_chatbot,
+            "sinais_json": sinais_json,
+        },
+    )
+    row = conn.execute("SELECT id FROM analises_website WHERE empresa_id = ?", (empresa_id,)).fetchone()
+    return row["id"]
