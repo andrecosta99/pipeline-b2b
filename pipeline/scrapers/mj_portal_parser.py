@@ -51,11 +51,26 @@ class PublicacaoResult:
     fonte_url: Optional[str] = None
 
     def is_valid(self) -> bool:
-        return bool(self.nif and self.nome)
+        # NIF/NIPC portugues tem 9 digitos. Exigir isto evita apanhar lixo de
+        # tabelas erradas (ex: a propria tabela do formulario de pesquisa,
+        # menus, etc.) que nao tem numeros nesse formato.
+        return bool(self.nif and self.nif.isdigit() and len(self.nif) == 9 and self.nome)
+
+
+# Tabelas conhecidas do layout do site que NUNCA sao a grid de resultados
+# (formulario de pesquisa, menus). Evita falsos positivos na heuristica de fallback.
+_IDENTIFICADORES_EXCLUIDOS = ("formulario", "menu", "radiobuttonlist")
 
 
 def _localizar_tabela_resultados(soup: BeautifulSoup) -> Optional[Tag]:
-    candidatos = soup.find_all("table")
+    candidatos = [
+        t
+        for t in soup.find_all("table")
+        if not any(
+            excluido in " ".join([t.get("id", ""), " ".join(t.get("class", []))]).lower()
+            for excluido in _IDENTIFICADORES_EXCLUIDOS
+        )
+    ]
     if not candidatos:
         return None
 

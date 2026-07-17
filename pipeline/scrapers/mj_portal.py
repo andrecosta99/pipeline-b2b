@@ -31,7 +31,7 @@ SEL_DISTRITO = "#ctl00_ContentPlaceHolderMain_comboDadosPubDistrito"
 SEL_DATA_INICIO = "#ctl00_ContentPlaceHolderMain_txtDataInit"
 SEL_DATA_FIM = "#ctl00_ContentPlaceHolderMain_txtDataFim"
 SEL_BOTAO_PESQUISAR = "#ctl00_ContentPlaceHolderMain_btSearch"
-SEL_RECAPTCHA_IFRAME = "iframe[src*='recaptcha']"
+SEL_RECAPTCHA_CHALLENGE_IFRAME = "iframe[title*='recaptcha challenge']"
 
 
 @dataclass
@@ -53,15 +53,22 @@ def _janela_datas_default() -> tuple[str, str]:
     return inicio.strftime("%d-%m-%Y"), hoje.strftime("%d-%m-%Y")
 
 
-def _aguardar_resolucao_captcha_se_necessario(page: Page, timeout_s: int = 5) -> None:
-    """Se a Google exigir um desafio visivel de captcha, pausa para resolucao manual."""
+def _aguardar_resolucao_captcha_se_necessario(page: Page, deteccao_timeout_s: int = 4) -> None:
+    """Deteta (best-effort, apenas para log) se apareceu o popup de desafio do
+    reCAPTCHA, para informar. A deteccao NAO e usada para decidir quando
+    continuar — isso e feito em `_preencher_formulario_pesquisa` esperando que
+    o proprio botao de pesquisa (da pagina anterior) seja removido do DOM,
+    o que so acontece quando a navegacao/postback da pesquisa realmente ocorre.
+    (Nota: o badge do reCAPTCHA no canto da pagina fica sempre presente/visivel
+    mesmo sem desafio nenhum, por isso nao pode ser usado como sinal de espera.)
+    """
     try:
-        page.wait_for_selector(SEL_RECAPTCHA_IFRAME, timeout=timeout_s * 1000, state="visible")
+        page.wait_for_selector(
+            SEL_RECAPTCHA_CHALLENGE_IFRAME, timeout=deteccao_timeout_s * 1000, state="visible"
+        )
+        logger.warning("Desafio de reCAPTCHA visivel. Resolve-o na janela do browser.")
     except PlaywrightTimeoutError:
-        return  # nenhum desafio visivel detetado, provavelmente passou no modo invisivel
-
-    logger.warning("Desafio de reCAPTCHA detetado. Resolve-o manualmente na janela do browser.")
-    input(">> Resolve o captcha na janela do Chrome/Chromium e prime ENTER aqui para continuar... ")
+        pass  # sem desafio visivel (recaptcha invisivel passou, ou ainda nao apareceu)
 
 
 def _guardar_raw_html(html: str, distrito: str, indice_pagina: int) -> Path:
@@ -84,11 +91,26 @@ def _preencher_formulario_pesquisa(page: Page, data_inicio: str, data_fim: str) 
     page.fill(SEL_DATA_INICIO, data_inicio)
     page.fill(SEL_DATA_FIM, data_fim)
 
-    page.click(SEL_BOTAO_PESQUISAR)
-    page.wait_for_load_state("networkidle")
-    _aguardar_resolucao_captcha_se_necessario(page)
-    # Depois de resolver o captcha manualmente (ou se nao foi necessario),
-    # aguarda que a navegacao/postback dos resultados estabilize.
+    # Em vez de adivinhar por mudancas no DOM (o site pode usar UpdatePanel/AJAX,
+    # que so substitui parte da pagina e nao remove os controlos originais),
+    # esperamos diretamente pela resposta HTTP do POST de pesquisa. Isto funciona
+    # tanto para postback completo como parcial, e so resolve quando o pedido
+    # for de facto submetido — ou seja, depois do captcha (invisivel ou manual)
+    # ser resolvido.
+    logger.info("A aguardar resposta da pesquisa (resolve o captcha na janela se aparecer)...")
+    try:
+        with page.expect_response(
+            lambda r: r.request.method == "POST" and "Pesquisa.aspx" in r.url,
+            timeout=600_000,
+        ):
+            page.click(SEL_BOTAO_PESQUISAR)
+            _aguardar_resolucao_captcha_se_necessario(page)
+    except PlaywrightTimeoutError:
+        logger.error(
+            "Sem resposta da pesquisa dentro do tempo limite (10 min). "
+            "A pesquisa pode nao ter sido submetida."
+        )
+
     page.wait_for_load_state("networkidle")
 
 

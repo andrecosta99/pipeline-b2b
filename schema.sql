@@ -7,25 +7,33 @@
 
 PRAGMA foreign_keys = ON;
 
--- Fase 1: universo de empresas recolhido do Portal da Justica
+-- Fase 1: universo de empresas. Fonte principal atual: CSV curado manualmente
+-- (nome, distrito, concelho/freguesia, site, NIF quando disponivel). O scraper
+-- do Portal da Justica (pipeline/scrapers/mj_portal.py) fica no repo mas nao
+-- e a fonte ativa por agora (bloqueado por reCAPTCHA + rejeicao do browser
+-- automatizado). NIF e opcional porque o CSV nem sempre o tem; quando ausente,
+-- a deduplicacao usa nome+concelho (ver idx_empresas_nome_concelho).
 CREATE TABLE IF NOT EXISTS empresas (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    nif             TEXT NOT NULL UNIQUE,
+    nif             TEXT UNIQUE,       -- opcional; unico quando presente (SQLite trata NULLs como distintos)
     nome            TEXT NOT NULL,
     cae             TEXT,
     concelho        TEXT,
+    freguesia       TEXT,
     distrito        TEXT NOT NULL DEFAULT 'Aveiro',
-    data_ato        TEXT,              -- data do ato publicado (ISO-8601)
+    data_ato        TEXT,              -- data do ato publicado (ISO-8601), quando vier do MJ
     tipo_ato        TEXT,
-    estado          TEXT,              -- estado da publicacao/empresa no portal
-    fonte_url       TEXT,              -- URL da publicacao de origem
-    raw_html_path   TEXT,              -- caminho local do HTML raw guardado (Fase 1)
+    estado          TEXT,              -- estado da publicacao/empresa no portal, quando aplicavel
+    fonte           TEXT NOT NULL DEFAULT 'csv_manual',  -- csv_manual | mj_portal
+    fonte_url       TEXT,              -- URL da publicacao de origem, quando aplicavel
+    raw_html_path   TEXT,              -- caminho local do HTML raw guardado, quando aplicavel
     criado_em       TEXT NOT NULL DEFAULT (datetime('now')),
     atualizado_em   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_empresas_concelho ON empresas(concelho);
 CREATE INDEX IF NOT EXISTS idx_empresas_cae ON empresas(cae);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_empresas_nome_concelho ON empresas(nome, concelho);
 
 -- Fase 2: dominio descoberto por empresa
 CREATE TABLE IF NOT EXISTS dominios (

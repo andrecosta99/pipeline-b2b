@@ -8,6 +8,7 @@ data/raw_html/*
 !data/raw_html/.gitkeep
 data/logs/*
 !data/logs/.gitkeep
+data/playwright_profile/
 *.log
 .DS_Store
 .pytest_cache/

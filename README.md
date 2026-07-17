@@ -7,42 +7,64 @@ prática em IA para equipas.
 
 ## Estado atual
 
-- ✅ **Fase 1** — Recolha de universo (Portal da Justiça, publicacoes.mj.pt)
-- ⏳ Fase 2 — Descoberta de domínio
+- ✅ **Fase 1** — Recolha de universo, via importação de CSV curado manualmente
+- ⏳ Fase 2 — Descoberta de domínio (para empresas do CSV sem site)
 - ⏳ Fase 3 — Análise de website / deteção de chatbot
 - ⏳ Fase 4 — Recolha de email
 - ⏳ Fase 5 — Classificação e ordenação de serviços
 - ⏳ Fase 6 — Geração de sequência de emails
 - ⏳ Fase 7 — Output final
 
-## Aviso importante: reCAPTCHA no Portal da Justiça
+## Fonte de dados da Fase 1: CSV manual (não o scraper do Portal da Justiça)
 
-A pesquisa em `publicacoes.mj.pt` está protegida por **reCAPTCHA invisível da
-Google**. O scraper da Fase 1 (`pipeline/scrapers/mj_portal.py`) usa
-Playwright com um **browser visível** (não headless por definição) e um
-perfil persistente (`data/playwright_profile/`), para reter a confiança da
-sessão entre execuções.
+A ideia inicial era raspar `publicacoes.mj.pt` automaticamente. Na prática
+isso mostrou-se pouco fiável: a pesquisa está protegida por reCAPTCHA
+invisível da Google e, mesmo com o captcha resolvido manualmente numa janela
+de browser visível, os pedidos de um browser automatizado (Playwright) foram
+rejeitados silenciosamente pelo servidor (a pesquisa nunca era submetida,
+mesmo sem mostrar erro).
 
-Se a Google exigir um desafio de captcha visível, o script **pausa** e pede
-para o resolveres manualmente na janela do Chromium; depois de resolvido,
-prime ENTER no terminal e a automação (pesquisa, paginação, parsing)
-continua sozinha. Não há qualquer tentativa de bypass automático do
-captcha.
+**Por isso, a fonte principal da Fase 1 passou a ser um CSV preenchido/curado
+manualmente**, com o essencial: nome da empresa, distrito, concelho (e/ou
+freguesia), site, e NIF quando disponível. Exemplo de linha:
 
-### Calibração do parser (primeira execução)
-
-A estrutura exata da tabela de resultados não pôde ser inspecionada antes de
-resolver o captcha manualmente, por isso `pipeline/scrapers/mj_portal_parser.py`
-assume uma estrutura típica de ASP.NET GridView (NIF, Nome, CAE, Concelho,
-Data do Ato, Estado, por esta ordem). **Depois da primeira execução real**,
-confirma a estrutura com:
-
-```bash
-python scripts/inspect_raw_html.py data/raw_html/mj_aveiro_pagina001_*.html
+```
+RIAMOLDE - ENGENHARIA E SISTEMAS S.A.,AVEIRO,CACIA,www.riamolde.com,
 ```
 
-Se as colunas não corresponderem, ajusta o dicionário `COLUNAS` em
-`pipeline/scrapers/mj_portal_parser.py`.
+O código do scraper Playwright (`pipeline/scrapers/mj_portal.py` +
+`mj_portal_parser.py`) fica no repositório para o caso de valer a pena
+retomar essa via mais tarde (ex: com resolução de captcha por serviço
+externo, ou encontrando um endpoint alternativo sem captcha), mas **não é a
+via ativa**.
+
+### Importar o CSV
+
+```bash
+python scripts/import_csv.py caminho/para/empresas.csv
+```
+
+Colunas reconhecidas no cabeçalho (case-insensitive, aceita variantes):
+
+| Campo | Nomes de coluna aceites |
+|---|---|
+| nome | `nome`, `empresa`, `entidade`, `designacao` |
+| distrito | `distrito` |
+| concelho | `concelho` |
+| freguesia | `freguesia`, `localidade` |
+| site | `site`, `website`, `dominio`, `url` |
+| nif | `nif`, `nipc` |
+| cae | `cae` |
+
+Se o ficheiro não tiver cabeçalho reconhecível, assume a ordem posicional
+`nome, distrito, concelho, site, nif` (nif opcional).
+
+- O delimitador é detetado automaticamente (`,`, `;` ou tab); força-se com `--delimiter ";"`.
+- **Idempotente**: podes correr o mesmo CSV várias vezes sem duplicar — a
+  deduplicação usa o NIF quando presente, senão nome+concelho.
+- Sites são normalizados para domínio simples (`www.riamolde.com` → `riamolde.com`)
+  e gravados já como domínio validado (fase 2 só corre para quem não tiver site no CSV).
+- Linhas sem nome são ignoradas com aviso no log; sites que não parecem domínios válidos são ignorados (empresa fica sem domínio, a preencher na Fase 2).
 
 ## Setup
 
@@ -50,7 +72,7 @@ Se as colunas não corresponderem, ajusta o dicionário `COLUNAS` em
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-playwright install chromium
+playwright install chromium   # só necessário se vieres a reativar o scraper do MJ
 
 cp .env.example .env
 # edita .env e preenche ANTHROPIC_API_KEY, GOOGLE_CSE_API_KEY/GOOGLE_CSE_ID (ou BING_SEARCH_API_KEY)
@@ -59,24 +81,6 @@ cp .env.example .env
 A base de dados SQLite é criada automaticamente (schema em `schema.sql`) na
 primeira execução, em `data/pipeline.db` (caminho configurável via
 `DATABASE_PATH`).
-
-## Executar a Fase 1
-
-```bash
-# janela de datas default = últimos 30 dias
-python scripts/run_fase1.py
-
-# janela de datas explícita
-python scripts/run_fase1.py --data-inicio 2026-06-01 --data-fim 2026-07-17
-
-# limitar a N páginas de resultados (útil para testar)
-python scripts/run_fase1.py --max-paginas 2
-```
-
-Cada página de resultados é guardada como HTML raw em `data/raw_html/`
-**antes** de ser parseada — se o parser falhar ou precisar de ajustes, os
-pedidos não precisam de ser repetidos, basta re-processar os ficheiros
-guardados.
 
 Logs em `data/logs/pipeline.log` (rotativo, consola + ficheiro).
 
@@ -89,12 +93,8 @@ Logs em `data/logs/pipeline.log` (rotativo, consola + ficheiro).
 | `GOOGLE_CSE_API_KEY`, `GOOGLE_CSE_ID` | Google Custom Search |
 | `BING_SEARCH_API_KEY` | Bing Search (alternativa) |
 | `DATABASE_PATH` | Caminho do SQLite |
-| `RATE_LIMIT_MIN_SECONDS`, `RATE_LIMIT_MAX_SECONDS` | Intervalo aleatório entre pedidos |
-| `MJ_DISTRITO`, `MJ_DISTRITO_CODIGO` | Distrito alvo (Aveiro = `01`) |
-| `MJ_DATA_INICIO`, `MJ_DATA_FIM` | Janela de datas da pesquisa (AAAA-MM-DD) |
-| `MJ_MAX_PAGINAS` | Limite de segurança de páginas (vazio = sem limite) |
-| `PLAYWRIGHT_HEADLESS` | `false` recomendado (para poder resolver captcha) |
-| `PLAYWRIGHT_USER_DATA_DIR` | Perfil persistente do browser |
+| `RATE_LIMIT_MIN_SECONDS`, `RATE_LIMIT_MAX_SECONDS` | Intervalo aleatório entre pedidos (Fases 2-4) |
+| `MJ_*`, `PLAYWRIGHT_*` | Só relevantes se reativares o scraper do Portal da Justiça |
 
 ## Testes
 
@@ -110,19 +110,21 @@ dependem de acesso à rede nem ao Playwright.
 ```
 pipeline/
   config.py           # configuração central (.env)
-  db/database.py       # schema, conexão, upsert
+  db/database.py       # schema, conexão, upsert (empresas + dominios)
+  utils/
+    domains.py              # normalização de dominios/URLs
+    logging_config.py
+    rate_limiter.py
   scrapers/
-    mj_portal.py            # automação Playwright (Fase 1)
-    mj_portal_parser.py     # parsing HTML -> dados (testável isoladamente)
+    mj_portal.py             # automação Playwright do Portal da Justica (INATIVO, ver acima)
+    mj_portal_parser.py      # parsing HTML -> dados (testável isoladamente)
   discovery/           # Fase 2 (a implementar)
   analysis/             # Fase 3 (a implementar)
   emails/               # Fase 6 (a implementar)
-  utils/
-    logging_config.py
-    rate_limiter.py
 scripts/
-  run_fase1.py               # CLI da Fase 1
-  inspect_raw_html.py        # ajuda a calibrar o parser
+  import_csv.py               # importa o CSV manual (Fase 1 ativa)
+  run_fase1.py                # CLI do scraper do MJ (inativo por agora)
+  inspect_raw_html.py         # ajuda a calibrar o parser do MJ, se reativado
 schema.sql              # schema SQLite (preparado para migrar para Postgres)
 tests/
 data/
