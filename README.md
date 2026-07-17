@@ -10,7 +10,7 @@ prática em IA para equipas.
 - ✅ **Fase 1** — Recolha de universo, via importação de CSV curado manualmente
 - ✅ **Fase 2** — Descoberta de domínio (Google CSE / Bing + fuzzy match) para empresas do CSV sem site
 - ✅ **Fase 3** — Análise de website: deteção de chatbot + classificação via Claude API
-- ⏳ Fase 4 — Recolha de email
+- ✅ **Fase 4** — Recolha de emails de contacto (homepage, contacto, sobre)
 - ⏳ Fase 5 — Classificação e ordenação de serviços
 - ⏳ Fase 6 — Geração de sequência de emails
 - ⏳ Fase 7 — Output final
@@ -37,6 +37,15 @@ O código do scraper Playwright (`pipeline/scrapers/mj_portal.py` +
 retomar essa via mais tarde (ex: com resolução de captcha por serviço
 externo, ou encontrando um endpoint alternativo sem captcha), mas **não é a
 via ativa**.
+
+### Progresso da extração manual (fonte: diretorio.informadb.pt)
+
+Os dados do CSV estão a ser recolhidos manualmente a partir do diretório de
+empresas do concelho de Aveiro em `diretorio.informadb.pt`, página a página
+(URLs no formato `https://diretorio.informadb.pt/Concelho_AVEIRO/Empresas-N.html`).
+
+**Última página extraída: 75** (`.../Concelho_AVEIRO/Empresas-75.html`) —
+continuar a partir da página 76 na próxima sessão de recolha.
 
 ### Importar o CSV
 
@@ -115,6 +124,27 @@ python scripts/run_fase3.py --limite 10
 Só processa empresas com domínio validado que ainda não têm análise
 registada em `analises_website`.
 
+## Fase 4: recolha de emails de contacto
+
+Para empresas com domínio validado, visita um pequeno conjunto de páginas
+típicas (`/`, `/contacto`, `/contactos`, `/contact`, `/sobre`, `/about`,
+`/quem-somos`, ...) com `requests` + BeautifulSoup (sem Playwright — não
+precisa de JS) e extrai todos os emails encontrados, tanto em texto solto
+como em links `mailto:`. Filtra falsos positivos comuns (emails de imagem
+tipo `logo@2x.png`, domínios de template/tracker como `sentry.io` ou
+`wixpress.com`).
+
+```bash
+python scripts/run_fase4.py
+python scripts/run_fase4.py --limite 20
+```
+
+Guarda **todos** os candidatos encontrados por empresa (pode haver mais que
+um) em `emails_candidatos` — a escolha de qual usar fica para o campo manual
+`email_contacto` em `outreach` (Fase 7). Só processa empresas ainda sem
+nenhuma tentativa registada; se não encontrar nenhum email, grava um marcador
+para não reprocessar a mesma empresa em execuções seguintes.
+
 ## Setup
 
 ```bash
@@ -174,11 +204,14 @@ pipeline/
     chatbot_detection.py      # deteta widgets de chat por assinatura no HTML
     website_analyzer.py       # Playwright: visita site, tenta interagir com o widget
     claude_classifier.py      # classificacao via Claude API
+  contacts/
+    email_finder.py            # recolha de emails de contacto (Fase 4)
   emails/               # Fase 6 (a implementar)
 scripts/
   import_csv.py               # importa o CSV manual (Fase 1 ativa)
   run_fase2.py                 # CLI da descoberta de dominio (Fase 2)
   run_fase3.py                 # CLI da analise de website/chatbot (Fase 3)
+  run_fase4.py                 # CLI da recolha de emails (Fase 4)
   run_fase1.py                # CLI do scraper do MJ (inativo por agora)
   inspect_raw_html.py         # ajuda a calibrar o parser do MJ, se reativado
 schema.sql              # schema SQLite (preparado para migrar para Postgres)

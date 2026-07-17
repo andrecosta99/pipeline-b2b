@@ -63,10 +63,13 @@ CREATE TABLE IF NOT EXISTS analises_website (
 );
 
 -- Fase 4: candidatos a email encontrados por dominio
+-- email e nullable: uma linha com email=NULL marca que a empresa ja foi
+-- processada pela Fase 4 mas nao se encontrou nenhum email (evita reprocessar
+-- em execucoes seguintes; ver empresas_com_dominio_sem_email em database.py).
 CREATE TABLE IF NOT EXISTS emails_candidatos (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     empresa_id      INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
-    email           TEXT NOT NULL,
+    email           TEXT,
     origem_pagina   TEXT,              -- /contacto, /sobre, footer, ...
     criado_em       TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(empresa_id, email)

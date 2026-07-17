@@ -199,6 +199,46 @@ def empresas_com_dominio_sem_analise(conn: sqlite3.Connection) -> list[sqlite3.R
     ).fetchall()
 
 
+def empresas_com_dominio_sem_email(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Empresas com dominio validado (Fase 2) ainda sem nenhuma tentativa de
+    recolha de email (Fase 4) registada."""
+    return conn.execute(
+        """
+        SELECT e.id, e.nome, e.concelho, d.dominio
+        FROM empresas e
+        JOIN dominios d ON d.empresa_id = e.id AND d.validado = 1
+        LEFT JOIN emails_candidatos ec ON ec.empresa_id = e.id
+        WHERE ec.id IS NULL
+        ORDER BY e.id
+        """
+    ).fetchall()
+
+
+def registar_emails_candidatos(
+    conn: sqlite3.Connection, *, empresa_id: int, candidatos: list[tuple[str, str]]
+) -> int:
+    """Grava os emails candidatos encontrados para uma empresa. Se a lista
+    estiver vazia, grava uma linha marcadora (email=NULL) para nao reprocessar
+    esta empresa em execucoes futuras. Devolve o numero de emails gravados."""
+    if not candidatos:
+        conn.execute(
+            "INSERT INTO emails_candidatos (empresa_id, email, origem_pagina) VALUES (?, NULL, NULL)",
+            (empresa_id,),
+        )
+        return 0
+
+    for email, origem_pagina in candidatos:
+        conn.execute(
+            """
+            INSERT INTO emails_candidatos (empresa_id, email, origem_pagina)
+            VALUES (:empresa_id, :email, :origem_pagina)
+            ON CONFLICT(empresa_id, email) DO UPDATE SET origem_pagina = excluded.origem_pagina
+            """,
+            {"empresa_id": empresa_id, "email": email, "origem_pagina": origem_pagina},
+        )
+    return len(candidatos)
+
+
 def upsert_analise_website(
     conn: sqlite3.Connection,
     *,
